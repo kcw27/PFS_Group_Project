@@ -18,3 +18,4 @@ It may be helpful to write executable files to automate the pipeline (e.g. autom
 ## Citations
 * Stemmer K, Ellinger-Ziegelbauer H, Ahr HJ, Dietrich DR. Carcinogen-specific gene expression profiles in short-term treated Eker and wild-type rats indicative of pathways involved in renal tumorigenesis. _Cancer Res_ 2007 May 1;67(9):4052-68. PMID: 17483316
 * Tesson, B.M., Breitling, R. & Jansen, R.C. DiffCoEx: a simple and sensitive method to find differentially coexpressed gene modules. _BMC Bioinformatics_ 11, 497 (2010). https://doi.org/10.1186/1471-2105-11-497
+* Watson, M. CoXpress: differential co-expression in gene expression data. _BMC Bioinformatics_ 7, 509 (2006). https://doi.org/10.1186/1471-2105-7-509
