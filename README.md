@@ -1,5 +1,6 @@
 # Programming For Scientists (02-601) Group Project
-Course taught by Professor Phillip Compeau at Carnegie Mellon University, Fall 2024
+Course taught by Professor Phillip Compeau at Carnegie Mellon University, Fall 2024  
+<a href="https://docs.google.com/document/d/1JmdNldR_mWnpVBF9NvQcTxIbkkOmzIdUMIrUF6iC4wQ/edit?usp=sharing">Google Doc</a>
 
 ## Project description
 In Go, we will reimplement the experiment described in Additional File 4 of <a href="https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-11-497#Sec18">Tesson _et al._ 2010</a>. The purpose of this experiment was to demonstrate that DiffCoEx is more sensitive to differential coexpression modules than other algorithms are.
