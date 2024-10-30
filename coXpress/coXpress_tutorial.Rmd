@@ -1,0 +1,81 @@
+Lightly adapted from https://coxpress.sourceforge.net/tutorial_code.html by Katherine Wang.
+
+Please note that there are extensive examples both in the coXpress help:
+```{r}
+library(coXpress)
+#?coXpress
+```
+and on the coXpress website: http://coxpress.sf.net/code.R
+
+# Step 1: reading your data in
+Examples are provided here of reading in both a text file (golub.txt) and an Excel spreadsheet (golub.xls).  The data should have rows representing genes and columns representing arrays.  There should be one column containing unique gene identifiers.  
+
+If your data is in a text file....
+```{r}
+# here we use the read.table command.  This command reads in text files.  See
+# ?read.table for help.  Our gene identifiers are in row 1, and so we pass 1
+# to the row.names argument
+golub.df <- read.table("golub.txt", sep="\t", header=TRUE, row.names=1)
+```
+
+If your data is in an Excel Spreadsheet (note: I've commented this all out because odbcConnectExcel doesn't work with 64-bit Windows)
+```{r}
+# here we use the RODBC library 
+##library(RODBC)
+
+# we tell it where our spreadsheet is
+##xl <- odbcConnectExcel("golub.xls")
+
+# we tell it what the worksheet is called sheet1
+# this time we tell it the name of the column containing our gene identifiers
+##golub.df <- sqlFetch(xl, "golub", rownames="Gene")
+
+# once we have 
+##odbcCloseAll()
+```
+
+# Step 2: Cluster data based on a subset of experiments.
+The golub data has 27 ALL cases and 11 AML cases. We will cluster on the 27 ALL cases.  
+(Note: ALL = acute lymphoblastic leukemia, AML = acute myeloid leukemia. So these are the two conditions between which the differential coexpression is examined. The goal of this study was to determine the distinction between these two kinds of leukemia. In other datasets, you might compare the control group against the treatment group.)
+```{r}
+# ALL cases are in columns 1-27
+hc.gene  <- cluster.gene(golub.df[,1:27],s="pearson",m="average")
+```
+
+# Step 3: cut the tree at a height of 0.4 (equates to pearson correlation of 0.6).
+This choice of cut off is user defined and should be in the range 0 < h < 2.  A low value will produce many groups with few genes in each group; a large value will produce few groups with many genes.
+```{r}
+g <- cutree(hc.gene, h=0.4)
+```
+
+# Step 4: examine the difference between ALL and AML samples. 
+```{r}
+# The AML samples are in columns 28-38
+cox <- coXpress(golub.df, g, 1:27, 28:38)
+```
+       
+# Step 5: view results.
+The results are a data.frame, with one row for each group of genes.
+See '?coXpress' for a longer explanation of the columns and their meanings. 
+```{r}
+# Examine the top 30 results
+cox[1:30,]
+```
+
+# Step 6: examine groups of interest graphically   
+```{r}
+# look at group 21
+plot.compare.group(golub.df,g,21,1:27,28:38,
+                    scale.center=TRUE,scale.scale=TRUE,
+                    ylim=c(-5,5))
+                         
+inspect.group(golub.df,g,21,1:27,28:38)
+
+# look for groups of genes with >= 10 members
+cox[cox$N>=10,]
+       
+# look for groups of genes with >= 8 members
+# that are non-random in group 1 and random 
+# in group 2
+cox[cox$N>8 & cox$pr.g1<=.05 & cox$pr.g2>=.05, ]
+```
