@@ -1,0 +1,95 @@
+---
+title: "coXpress_rat_data"
+author: "Katie Wang"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+library(coXpress)
+# BiocManager::install("preprocessCore")
+library(preprocessCore)
+library(tidyverse)
+```
+
+# Running coXpress on the Stemmer et al. rat data
+
+# Step 1: reading data in
+This dataset was used in the DiffCoEx analysis. We're running it in coXpress in order to compare their performance.
+Downloaded DataSet SOFT File from https://www.ncbi.nlm.nih.gov/sites/GDSbrowser?acc=GDS2901, then extracted from .gz format using 7Zip.
+Reading in data using code from Additional File 1 of ttps://doi.org/10.1186/1471-2105-11-497 
+```{r}
+# Session > Set Working Directory > Choose Directory > select the directory that you downloaded this file to
+
+data<-as.matrix(read.csv(file="GDS2901.soft",skip=166,row.names=1,sep="\t",header=T)) # reading in the data
+data<-data[-15924,] # remove the last row, which contains no info
+```
+
+```{r}
+rawData<-matrix(as.numeric(data[,-1]),nrow=15923) # got rid of the first column, which had gene identifiers
+dimnames(rawData)<-dimnames(data[,-1]) # I think this line matches the sample names to their corresponding columns
+#we create an annotation matrix containing the matches between probesets and gene names
+anno<-as.matrix(data[-2475,1]) # The aforementioned gene identifiers column is saved here, minus the very last element for some reason
+normData<-normalize.quantiles(log2(rawData)) # take the log of the data, most likely for better visualization
+dimnames(normData)<-dimnames(rawData) # same column names for the normalized data as for the raw data
+
+#we remove the probeset at index 2475 because
+#after quantile normalization it has zero variance
+#(the probeset has the highest signal of all samples)
+normData<-normData[-2475,]  
+```
+
+The code chunk below shows how the gene expression data was separated into conditions- Eker mutants and wild type. (Analogous to the separation of Golub data into ALL and AML in coXpress_tutorial.Rmd.) 
+```{r}
+# the code that I referenced from had the matrices transposed (with t()) but coXpress doesn't require the data to be transposed
+datC1<-normData[,c(1:12,25:36,37:48)] ### these samples correspond to the Eker mutants.
+# Note that since the Eker mutants have two sets of 12 control samples (13:24 and 37:48)
+# we discard one to have a symmetric perturbation (carcinogenic vs control) between the two conditions (Eker mutants vs wild-types)
+datC2<-normData[,49:84] ###those samples correspond to the wild-types
+```
+
+I think that coXpress wants the data to all be in one dataframe, so I will join datC1 and datC2 together by rownames. 
+```{r}
+datMerged <- merge(datC1, datC2, by=0) # cols 1:36 are Eker mutants, and cols 37-72 are control
+datMerged <- datMerged |> # the rownames turned into a column, so I turned them back into a column
+  column_to_rownames(var = "Row.names")
+
+# to show that the columns of datMerged are exactly as we expect them to be
+#identical(colnames(datMerged[, 1:36]), colnames(datC1))
+#identical(colnames(datMerged[, 37:72]), colnames(datC2))
+```
+## Step 2: cluster data based on a subset of experiments
+Cluster on the 36 Eker mutant cases.
+```{r}
+# For now, subset datMerged to a smaller number of rows (genes) so that my computer can handle it)
+datMergedSmaller <- datMerged[1:2500,]
+
+# Eker cases are in columns 1-36
+hc.gene  <- cluster.gene(datMergedSmaller[,1:36],s="pearson",m="average")
+```
+
+## Step 3: cut the tree
+This choice of cut off is user defined and should be in the range 0 < h < 2.  A low value will produce many groups with few genes in each group; a large value will produce few groups with many genes.
+A height of 0.4 (as used below) equates to pearson correlation of 0.6. I don't know if this is an appropriate threshold, but this is what was used in the coXpress tutorial, so I will start with that.
+```{r}
+g <- cutree(hc.gene, h=0.4)
+```
+
+# Step 4: examine the difference between Eker and control samples. 
+```{r}
+# The control samples are in columns 37-72
+#cox <- coXpress(datMerged, g, 1:36, 37:72)
+cox <- coXpress(datMergedSmaller, g, 1:36, 37:72)
+```
+
+# Step 5: view results.
+The results are a data.frame, with one row for each group of genes.
+See '?coXpress' for a longer explanation of the columns and their meanings. 
+```{r}
+# Examine the top 30 results
+cox[1:30,]
+```
+
+# Step 6: examine groups of interest graphically   
+
+# Step 7: save output to a  .txt
