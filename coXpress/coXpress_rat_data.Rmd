@@ -50,7 +50,7 @@ datC2<-normData[,49:84] ###those samples correspond to the wild-types
 
 I think that coXpress wants the data to all be in one dataframe, so I will join datC1 and datC2 together by rownames. 
 ```{r}
-datMerged <- merge(datC1, datC2, by=0) # cols 1:36 are Eker mutants, and cols 37-72 are control
+datMerged <- merge(datC1, datC2, by=0) # cols 1:36 are Eker mutants, and cols 37:72 are control
 datMerged <- datMerged |> # the rownames turned into a column, so I turned them back into a column
   column_to_rownames(var = "Row.names")
 
@@ -90,6 +90,63 @@ See '?coXpress' for a longer explanation of the columns and their meanings.
 cox[1:30,]
 ```
 
-# Step 6: examine groups of interest graphically   
+Some summary stats on N (the number of genes in a given group):
+```{r}
+cox |>
+  select(N) |>
+  summary()
+
+cox |> ggplot() +
+  geom_histogram(aes(x=N)) +
+  labs(x="Number of genes in a group", y="Count", title = "Group sizes")
+
+# Here are the exact numbers from that histogram. There were 59 instances of 3-gene groups, which makes it the largest group by far.
+cox_summary <- cox |>
+  group_by(N) |>
+  summarise(count=n())
+
+cox_summary
+```
+When the tree is cut at a height of 0.4, the mean number of genes in a group is 5.65, and the largest group has 67 genes. This is similar to what was observed for the Golub data in the coXpress tutorial.
+
+What percent of the genes examined in this dataset were sorted into modules?
+```{r}
+num_grouped <- sum(cox_summary$N * cox_summary$count)
+total_genes = nrow(datMergedSmaller)
+num_grouped / total_genes
+```
+If we assume that each gene participates in only one module, then 26.44% of genes in this dataset were grouped into a module. This is much lower than the 57.0% observed in the Golub data. However, the coexpression dataframe in this .Rmd was made with a small subset of the rat data, so that could explain the difference.
+
+# Step 6: examine groups of interest graphically  
+We'll look at group 211, for which N=14, making it a fairly large group.
+# look at group 21
+```{r}
+plot.compare.group(datMergedSmaller,g,211,1:36,37:72,
+                    scale.center=TRUE,scale.scale=TRUE,
+                    ylim=c(-5,5)) # compares Eker mutants (1:36) and control (37:72)
+
+# stats on group 211
+cox |>
+  filter(group==211)
+```
+The genes in group 211 are coexpressed in the Eker mutants (left) but not in the control (right).
+
+```{r}
+# look for groups of genes with N>=5
+# that are non-random in group 1 (Eker) and random 
+# in group 2 (control)
+cox[cox$N>=5 & cox$pr.g1<=.05 & cox$pr.g2>=.05, ]
+```
+```{r}
+# now look for groups of genes
+# that are random in group 1 (Eker) and non-random 
+# in group 2 (control)
+cox[cox$pr.g1>=.05 & cox$pr.g2<=.05, ]
+```
+Based on the two tables above, it seems like this subset of the rat data has a few medium-sized modules that are coexpressed in Eker mutants but not in controls, while there are no modules that are coexpressed in only the controls and not in the Eker mutants.
 
 # Step 7: save output to a  .txt
+This block produces a tab-separated file.
+```{r}
+write.table(cox, file="cox_rat.txt", sep="\t", quote=FALSE)
+```

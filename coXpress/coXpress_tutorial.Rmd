@@ -1,9 +1,16 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
 Lightly adapted from https://coxpress.sourceforge.net/tutorial_code.html by Katherine Wang.
 
 Please note that there are extensive examples both in the coXpress help:
 ```{r}
 library(coXpress)
 #?coXpress
+library(tidyverse)
+theme_set(theme_classic())
 ```
 and on the coXpress website: http://coxpress.sf.net/code.R
 
@@ -43,7 +50,7 @@ hc.gene  <- cluster.gene(golub.df[,1:27],s="pearson",m="average")
 ```
 
 # Step 3: cut the tree at a height of 0.4 (equates to pearson correlation of 0.6).
-This choice of cut off is user defined and should be in the range 0 < h < 2.  A low value will produce many groups with few genes in each group; a large value will produce few groups with many genes.
+This choice of cut off is user defined and should be in the range 0 < h < 2.  A low value will produce many modules (groups) with few genes in each module; a large value will produce few modules with many genes.
 ```{r}
 g <- cutree(hc.gene, h=0.4)
 ```
@@ -55,27 +62,85 @@ cox <- coXpress(golub.df, g, 1:27, 28:38)
 ```
        
 # Step 5: view results.
-The results are a data.frame, with one row for each group of genes.
+The results are a data.frame, with one row for each module of genes.
 See '?coXpress' for a longer explanation of the columns and their meanings. 
 ```{r}
 # Examine the top 30 results
 cox[1:30,]
 ```
+Some summary stats on N (the number of genes in a given module (the column labeled as "group")):
+```{r}
+cox |>
+  select(N) |>
+  summary()
 
-# Step 6: examine groups of interest graphically   
+cox |> ggplot() +
+  geom_histogram(aes(x=N)) +
+  labs(x="Number of genes in a group", y="Count", title = "Group sizes")
+
+# Here are the exact numbers from that histogram. There were 123 instances of 3-gene groups, which makes it the largest group by far.
+cox_summary <- cox |>
+  group_by(N) |>
+  summarise(count=n())
+
+cox_summary
+```
+When the tree is cut at a height of 4, the mean number of genes in a group (module) is 5.304, though there are a handful of larger groups. The largest group has 63 genes.
+
+What percent of the genes examined in this dataset were sorted into modules?
+```{r}
+num_grouped <- sum(cox_summary$N * cox_summary$count)
+total_genes = nrow(golub.df)
+num_grouped / total_genes
+```
+If we assume that each gene participates in only one module, then 57.0% of genes in this dataset were grouped into a module. This could be used (with a grain of salt) to calibrate the threshold for tree height on other datasets.
+
+# Step 6: examine modules of interest graphically (and other analyses)  
+Read https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-7-509 to help with figure interpretation.
 ```{r}
 # look at group 21
 plot.compare.group(golub.df,g,21,1:27,28:38,
                     scale.center=TRUE,scale.scale=TRUE,
-                    ylim=c(-5,5))
-                         
-inspect.group(golub.df,g,21,1:27,28:38)
+                    ylim=c(-5,5)) # compares ALL (1:27) against AML (28:38)
 
+# stats on group 21
+cox |>
+  filter(group==21)
+```
+x-axis: individual subjects (ALL cases in the left plot, AML cases in the right plot).
+y-axis: gene expression levels
+Each line represents one gene. For group 21, there are N=12. Notice that although these 12 genes have very similar y values for any given ALL case (as shown by the narrow spread across the y-axis for any given x value, or case), for the AML cases they are not correlated (as shown by the wide spread across the y-axis for any given x value, or case). This means that group 21 is differentially coexpressed! The genes in the group have similar expression levels under one condition (ALL), but not the other (AML).
+
+```{r}
+inspect.group(golub.df,g,21,1:27,28:38) # group 1 is ALL, group 2 is AML
+```
+I think this chart shows the pairwise correlation coefficients between pairs of genes within group 21. Pay attention to the difference in pairwise correlation coefficients between group 1 (ALL) and group 2 (AML).
+
+```{r}
 # look for groups of genes with >= 10 members
 cox[cox$N>=10,]
-       
+```
+```{r}
 # look for groups of genes with >= 8 members
-# that are non-random in group 1 and random 
-# in group 2
+# that are non-random in group 1 (ALL) and random 
+# in group 2 (AML)
 cox[cox$N>8 & cox$pr.g1<=.05 & cox$pr.g2>=.05, ]
 ```
+According to the coXpress documentation, pr.g1 and pr.g2 are the proportion of random statistics greater than the statistic observed for that group (t1 and t2 respectively). A low pr.g1 or pr.g2 (e.g. below the threshold of 0.05) means that we can reject the null hypothesis of "this module of genes is NOT coexpressed for this group of subjects". In terms of differential coexpression, if pr.g1<0.05 while pr.g2>0.05, that means that the group of genes is coexpressed under the condition that group 1 of the subjects is in, but not under the condition corresponding to group 2 of the subjects.
+
+# Step 7: save output df to .txt
+This block produces a tab-separated file.
+```{r}
+write.table(cox, file="cox_tutorial.txt", sep="\t", quote=FALSE)
+```
+
+Alternatively, use this block for a file with columns aligned nicely.
+```{r}
+max.print <- getOption('max.print')
+options(max.print=nrow(cox) * ncol(cox))
+sink('cox_tutorial_humanreadable.txt')
+cox
+sink()
+options(max.print=max.print)
+```
+
