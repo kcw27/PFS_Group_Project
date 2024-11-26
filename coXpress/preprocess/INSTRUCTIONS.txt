@@ -1,0 +1,9 @@
+Original data file: golub.txt
+
+New output files: 
+  1. all_samples.csv (27 samples, Acute Lymphoblastic Leukemia)
+  2. aml_samples.csv (11 samples, Acute Myeloid Leukemia)
+
+Potential package issues arise from importing gonum.org/v1/gonum/mat: 
+  go mod init local_directory
+  go get gonum.org/v1/gonum
