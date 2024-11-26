@@ -6,6 +6,7 @@ Since coXpress was last updated in 2013, it has to be rebuilt from the tar file 
 
 ## Installing WGCNA:
 RStudio > Tools > Install Packages... > select "Install from: Repository (CRAN)" and type WGCNA in the text box below
+In addition, download the impute package by running the following line in R: BiocManager:: install ("impute")
 
 ## [any other downloads that aren't provided alongside our code]
 
