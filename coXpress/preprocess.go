@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/csv"
-	"fmt"
 	"math"
 	"os"
 	"strconv"
@@ -10,7 +9,13 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-func ReadGolubData(filePath string) (*mat.Dense, error) {
+// Add a new struct to store both data and gene names
+type DataWithGenes struct {
+	Data    *mat.Dense
+	GeneIDs []string
+}
+
+func ReadGolubData(filePath string) (*DataWithGenes, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -28,11 +33,14 @@ func ReadGolubData(filePath string) (*mat.Dense, error) {
 	}
 
 	var data [][]string
+	var geneIDs []string
 	for {
 		record, err := reader.Read()
 		if err != nil {
 			break
 		}
+		// Store gene ID separately
+		geneIDs = append(geneIDs, record[0])
 		data = append(data, record)
 	}
 
@@ -47,7 +55,7 @@ func ReadGolubData(filePath string) (*mat.Dense, error) {
 		}
 	}
 
-	return rawData, nil
+	return &DataWithGenes{Data: rawData, GeneIDs: geneIDs}, nil
 }
 
 func ExtractALLSamples(data *mat.Dense) *mat.Dense {
@@ -80,127 +88,7 @@ func ExtractAMLSamples(data *mat.Dense) *mat.Dense {
 	return amlData
 }
 
-/* func main() {
-	dataFile := "golub.txt"
-
-	rawData, err := ReadGolubData(dataFile)
-	if err != nil {
-		log.Fatalf("Error reading data: %v", err)
-	}
-
-	// Extract ALL and AML samples
-	allSamples := ExtractALLSamples(rawData)
-	amlSamples := ExtractAMLSamples(rawData)
-
-	// Save ALL samples to CSV
-	if err := saveToCSV(allSamples, "all_samples.csv"); err != nil {
-		log.Fatalf("Error saving ALL samples data: %v", err)
-	}
-
-	// Save AML samples to CSV
-	if err := saveToCSV(amlSamples, "aml_samples.csv"); err != nil {
-		log.Fatalf("Error saving AML samples data: %v", err)
-	}
-
-	fmt.Println("Data processing complete. Files saved: all_samples.csv, aml_samples.csv")
-}
-
-*/
-
-func saveToCSV(data *mat.Dense, filename string) error {
-	file, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	rows, cols := data.Dims()
-	for i := 0; i < rows; i++ {
-		row := make([]string, cols)
-		for j := 0; j < cols; j++ {
-			row[j] = strconv.FormatFloat(data.At(i, j), 'f', -1, 64)
-		}
-		if err := writer.Write(row); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-////////////////////////////////////////////////////
-
-// Code above splits golub to two csv
-// Code below processes rat data
-
-////////////////////////////////////////////////////
-
-// Preprocess the rat data for coXpress analysis
-func preprocessForCoXpress(dataFile string) (*mat.Dense, *mat.Dense, error) {
-	// Read raw data
-	rawData, err := ReadData(dataFile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error reading data: %v", err)
-	}
-
-	// Remove last row (index 15923 in R, 15922 in Go due to 0-indexing)
-	rows, _ := rawData.Dims()
-	rawData = removeRow(rawData, rows-1)
-
-	// Remove probeset 2475 (index 2474 in both R and Go)
-	rawDataWithoutProbe := removeRow(rawData, 2474)
-
-	// Apply log2 transformation
-	logData := applyLog2(rawDataWithoutProbe)
-
-	// Apply quantile normalization
-	normData := NormalizeQuantiles(logData)
-
-	// Extract and return conditions
-	return extractConditions(normData)
-}
-
-func extractConditions(data *mat.Dense) (*mat.Dense, *mat.Dense, error) {
-	rows, _ := data.Dims()
-
-	// Extract Eker mutants (columns 0-11, 24-35, 36-47 in 0-based indexing)
-	ekerIndices := make([]int, 36)
-	copy(ekerIndices[0:12], makeRange(0, 12))   // 1-12 in R
-	copy(ekerIndices[12:24], makeRange(24, 36)) // 25-36 in R
-	copy(ekerIndices[24:36], makeRange(36, 48)) // 37-48 in R
-
-	datC1 := mat.NewDense(rows, 36, nil)
-	for j, idx := range ekerIndices {
-		col := mat.Col(nil, idx, data)
-		for i := 0; i < rows; i++ {
-			datC1.Set(i, j, col[i])
-		}
-	}
-
-	// Extract wild types (columns 48-83 in 0-based indexing)
-	datC2 := mat.NewDense(rows, 36, nil)
-	for j := 0; j < 36; j++ {
-		col := mat.Col(nil, j+48, data)
-		for i := 0; i < rows; i++ {
-			datC2.Set(i, j, col[i])
-		}
-	}
-
-	return datC1, datC2, nil
-}
-
-func makeRange(min, max int) []int {
-	a := make([]int, max-min)
-	for i := range a {
-		a[i] = min + i
-	}
-	return a
-}
-
-func ReadData(filePath string) (*mat.Dense, error) {
+func ReadData(filePath string) (*DataWithGenes, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -229,15 +117,17 @@ func ReadData(filePath string) (*mat.Dense, error) {
 	}
 
 	var data [][]string
+	var geneIDs []string
 	for {
 		record, err := reader.Read()
 		if err != nil || (len(record) > 0 && record[0] == "!dataset_table_end") {
 			break
 		}
+		// Store ID_REF as gene identifier
+		geneIDs = append(geneIDs, record[0])
 		data = append(data, record)
 	}
 
-	// Create matrix (15923 rows as per R code)
 	numRows := 15923
 	numCols := len(headers) - 2 // Exclude ID_REF and description columns
 	rawData := mat.NewDense(numRows, numCols, nil)
@@ -249,7 +139,7 @@ func ReadData(filePath string) (*mat.Dense, error) {
 		}
 	}
 
-	return rawData, nil
+	return &DataWithGenes{Data: rawData, GeneIDs: geneIDs}, nil
 }
 
 func removeRow(data *mat.Dense, rowIndex int) *mat.Dense {
@@ -332,4 +222,71 @@ func meanFloat(data []float64) float64 {
 		sum += v
 	}
 	return sum / float64(len(data))
+}
+
+// Modify saveToCSV to include gene IDs
+func saveToCSV(data *mat.Dense, geneIDs []string, filename string) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	rows, cols := data.Dims()
+	for i := 0; i < rows; i++ {
+		// Create a row starting with gene ID
+		row := make([]string, cols+1)
+		row[0] = geneIDs[i]
+
+		// Add the data values
+		for j := 0; j < cols; j++ {
+			row[j+1] = strconv.FormatFloat(data.At(i, j), 'f', -1, 64)
+		}
+
+		if err := writer.Write(row); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func extractConditions(data *mat.Dense) (*mat.Dense, *mat.Dense, error) {
+	rows, _ := data.Dims()
+
+	// Extract Eker mutants (columns 0-11, 24-35, 36-47 in 0-based indexing)
+	ekerIndices := make([]int, 36)
+	copy(ekerIndices[0:12], makeRange(0, 12))   // 1-12 in R
+	copy(ekerIndices[12:24], makeRange(24, 36)) // 25-36 in R
+	copy(ekerIndices[24:36], makeRange(36, 48)) // 37-48 in R
+
+	datC1 := mat.NewDense(rows, 36, nil)
+	for j, idx := range ekerIndices {
+		col := mat.Col(nil, idx, data)
+		for i := 0; i < rows; i++ {
+			datC1.Set(i, j, col[i])
+		}
+	}
+
+	// Extract wild types (columns 48-83 in 0-based indexing)
+	datC2 := mat.NewDense(rows, 36, nil)
+	for j := 0; j < 36; j++ {
+		col := mat.Col(nil, j+48, data)
+		for i := 0; i < rows; i++ {
+			datC2.Set(i, j, col[i])
+		}
+	}
+
+	return datC1, datC2, nil
+}
+
+func makeRange(min, max int) []int {
+	a := make([]int, max-min)
+	for i := range a {
+		a[i] = min + i
+	}
+	return a
 }

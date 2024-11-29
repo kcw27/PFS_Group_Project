@@ -7,7 +7,6 @@ import (
 )
 
 func main() {
-	// These would come from R Shiny as command-line arguments
 	if len(os.Args) != 3 {
 		fmt.Println("Usage: ./preprocess <dataset_type> <file_path>")
 		fmt.Println("dataset_type: 'rat' or 'golub'")
@@ -20,37 +19,49 @@ func main() {
 	switch datasetType {
 	case "rat":
 		// Process rat data (GDS2901.soft)
-		ekerMutants, wildTypes, err := preprocessForCoXpress(filePath)
+		dataWithGenes, err := ReadData(filePath)
 		if err != nil {
-			log.Fatalf("Error preprocessing rat data: %v", err)
+			log.Fatalf("Error reading rat data: %v", err)
 		}
 
-		// Save the processed data to files
-		if err := saveToCSV(ekerMutants, "eker_mutants.csv"); err != nil {
+		// Remove last row and probeset 2475
+		dataWithGenes.Data = removeRow(dataWithGenes.Data, len(dataWithGenes.GeneIDs)-1)
+		dataWithGenes.GeneIDs = append(dataWithGenes.GeneIDs[:2474], dataWithGenes.GeneIDs[2475:]...)
+		dataWithGenes.Data = removeRow(dataWithGenes.Data, 2474)
+
+		// Process data
+		logData := applyLog2(dataWithGenes.Data)
+		normData := NormalizeQuantiles(logData)
+		ekerMutants, wildTypes, err := extractConditions(normData)
+		if err != nil {
+			log.Fatalf("Error extracting conditions: %v", err)
+		}
+
+		// Save with gene IDs
+		if err := saveToCSV(ekerMutants, dataWithGenes.GeneIDs, "eker_mutants.csv"); err != nil {
 			log.Fatalf("Error saving Eker mutants data: %v", err)
 		}
-		if err := saveToCSV(wildTypes, "wild_types.csv"); err != nil {
+		if err := saveToCSV(wildTypes, dataWithGenes.GeneIDs, "wild_types.csv"); err != nil {
 			log.Fatalf("Error saving wild types data: %v", err)
 		}
 		fmt.Println("Rat data processing complete! Files saved: eker_mutants.csv, wild_types.csv")
 
 	case "golub":
 		// Process Golub data
-		rawData, err := ReadGolubData(filePath)
+		dataWithGenes, err := ReadGolubData(filePath)
 		if err != nil {
 			log.Fatalf("Error reading Golub data: %v", err)
 		}
 
 		// Extract ALL and AML samples
-		allSamples := ExtractALLSamples(rawData)
-		amlSamples := ExtractAMLSamples(rawData)
+		allSamples := ExtractALLSamples(dataWithGenes.Data)
+		amlSamples := ExtractAMLSamples(dataWithGenes.Data)
 
-		// Save ALL samples to CSV
-		if err := saveToCSV(allSamples, "all_samples.csv"); err != nil {
+		// Save with gene IDs
+		if err := saveToCSV(allSamples, dataWithGenes.GeneIDs, "all_samples.csv"); err != nil {
 			log.Fatalf("Error saving ALL samples data: %v", err)
 		}
-		// Save AML samples to CSV
-		if err := saveToCSV(amlSamples, "aml_samples.csv"); err != nil {
+		if err := saveToCSV(amlSamples, dataWithGenes.GeneIDs, "aml_samples.csv"); err != nil {
 			log.Fatalf("Error saving AML samples data: %v", err)
 		}
 		fmt.Println("Golub data processing complete! Files saved: all_samples.csv, aml_samples.csv")
