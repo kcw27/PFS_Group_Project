@@ -67,28 +67,28 @@ hc.gene  <- cluster.gene(c1,s="pearson",m="average")
 
 Cut the tree (hc.gene) at a height of 0.4 (equates to pearson correlation of 0.6). This choice of cut off is user defined and should be in the range 0 < h < 2.  A low value will produce many modules (groups) with few genes in each module; a large value will produce few modules with many genes.
 ```{r}
-coX_modules <- cutree(hc.gene, h=0.4)
+module <- cutree(hc.gene, h=0.4)
 
 # make the formatting a bit nicer
-coX_modules_df <- data.frame(coX_modules) |>
+coX_modules_df <- data.frame(module) |>
   rownames_to_column("gene") # these are the gene markers
   
-coX_modules_df <- coX_modules_df[order(coX_modules_df$coX_modules), ] # sorting by module number for easy viewing
+coX_modules_df <- coX_modules_df[order(coX_modules_df$module), ] # sorting by module number for easy viewing
 head(coX_modules_df)
 
 coX_modules_df |>
-  group_by(coX_modules) |>
+  group_by(module) |>
   summarize(num_genes=n())
 ```
 As seen above, there are currently 1039 "modules". We'll filter out modules of size 1, as these genes aren't really coexpressed.
 ```{r}
 coX_modules_df <- coX_modules_df |>
-  group_by(coX_modules) |>
+  group_by(module) |>
   filter(n() > 1) |>
   ungroup()
 
 coX_modules_df |>
-  group_by(coX_modules) |>
+  group_by(module) |>
   summarize(num_genes=n())
 ```
 This leaves us with 617 modules, each of which has at least one gene in it.
