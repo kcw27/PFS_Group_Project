@@ -4,87 +4,257 @@ author: "Katie Wang"
 date: "`r Sys.Date()`"
 output: html_document
 ---
+
 ```{r}
 library(coXpress)
 library(tidyverse)
 theme_set(theme_classic())
 
 # TODO: import libraries for DiffCoEx as needed
+# make sure to install bioconductor 
+# there are going to be a few bioconductor packages that need to be installed in order 
+# to run this 
+library(WGCNA)          ###used for topological overlap calculation and clustering steps
+library(RColorBrewer)   ###used to create nicer colour palettes
+library(preprocessCore) ###used by the quantile normalization function
+library(flashClust)
 
+library(ggplot2)
 ```
 
+# Goals of this notebook:
 
-# Goals of this notebook: 
-* Perform preprocessing of raw data in order to get it in the formats required for DiffCoEx and coXpress
-* Get gene modules (the outputs of DiffCoEx and coXpress)
-* Select an arbitrary gene of interest that appears in modules defined by both DiffCoEx and coXpress
-* Filter the preprocessed input data to just the chosen module
-* Generate correlation matrices (or adjacency matrices? The DiffCoEx authors used adjacency matrices) for both
+-   Perform preprocessing of raw data in order to get it in the formats required for DiffCoEx and coXpress
+-   Get gene modules (the outputs of DiffCoEx and coXpress)
+-   Select an arbitrary gene of interest that appears in modules defined by both DiffCoEx and coXpress
+-   Filter the preprocessed input data to just the chosen module
+-   Generate correlation matrices (or adjacency matrices? The DiffCoEx authors used adjacency matrices) for both
 
 ## Preprocessing (can be implemented in Go)
+
 Try this on toy data (i.e. golub.txt, which can be found in the Github repository) before attempting it with a larger dataset.
+
 ```{r}
 # Our gene identifiers are in row 1, and so we pass 1 to the row.names argument
 golub.df <- read.table("golub.txt", sep="\t", header=TRUE, row.names=1)
 ```
 
-The golub data has 27 ALL cases and 11 AML cases. We will cluster on the 27 ALL cases.  
+The golub data has 27 ALL cases and 11 AML cases. We will cluster on the 27 ALL cases.\
 (Note: ALL = acute lymphoblastic leukemia, AML = acute myeloid leukemia. So these are the two conditions between which the differential coexpression is examined. The goal of this study was to determine the distinction between these two kinds of leukemia. In other datasets, you might compare the control group against the treatment group.)
 
-
 ### For DiffCoEx
+
 For this golub dataset, I'll skip over the data normalization part for the sake of consistency with the coXpress output. If using the Eker rat data like in the DiffCoEx paper, we should probably use normalized data for both methods.
 
 DiffCoEx wants us to separate the input into two dataframes (by condition) and transpose them so that each column (rather than row) corresponds to a gene.
+
 ```{r}
 datC1 <- t(golub.df[,1:27]) # ALL condition
 datC2 <- t(golub.df[,28:38]) # AML condition
 ```
 
 ### For coXpress
+
 We don't separate the data into two dataframes (one for each condition). Instead, we use golub.df (imported earlier) as-is.
 
-
 ## Get gene modules (must be done in R)
+
 ### DiffCoEx
+
 ```{r}
 # TODO: run DiffCoEx to get gene modules
+beta1=6 #user defined parameter for soft thresholding
+AdjMatC1<-sign(cor(datC1,method="spearman"))*(cor(datC1,method="spearman"))^2
+AdjMatC2<-sign(cor(datC2,method="spearman"))*(cor(datC2,method="spearman"))^2
+diag(AdjMatC1)<-0
+diag(AdjMatC2)<-0
+collectGarbage()
+
+dissTOMC1C2=TOMdist((abs(AdjMatC1-AdjMatC2)/2)^(beta1/2))
+collectGarbage()
+
+#Hierarchical clustering is performed using the Topological Overlap of the adjacency difference as input distance matrix
+# make sure to install this 
+geneTreeC1C2 = flashClust(as.dist(dissTOMC1C2), method = "average"); 
+
+# Plot the resulting clustering tree (dendrogram)
+png(file="hierarchicalTree.png",height=1000,width=1000)
+plot(geneTreeC1C2, xlab="", sub="", main = "Gene clustering on TOM-based dissimilarity",labels = FALSE, hang = 0.04);
+dev.off()
+
+#We now extract modules from the hierarchical tree. This is done using cutreeDynamic. Please refer to WGCNA package documentation for details
+dynamicModsHybridC1C2 = cutreeDynamic(dendro = geneTreeC1C2, distM = dissTOMC1C2,method="hybrid",cutHeight=.996,deepSplit = T, pamRespectsDendro = FALSE,minClusterSize = 20);
+
+#Every module is assigned a color. Note that GREY is reserved for genes which do not belong to any differentially coexpressed module
+dynamicColorsHybridC1C2 = labels2colors(dynamicModsHybridC1C2)
+
+#the next step merges clusters which are close (see WGCNA package documentation)
+mergedColorC1C2<-mergeCloseModules(rbind(datC1,datC2),dynamicColorsHybridC1C2,cutHeight=.2)$color
+colorh1C1C2<-mergedColorC1C2
+
+# use rownames from golub.df because we are vertically stack datc1 and datc2
+diffcoex_results <- data.frame(Gene = rownames(golub.df), Cluster = colorh1C1C2)
+head(diffcoex_results)
 ```
 
 ### coXpress
+
 Generate hc.gene.
+
 ```{r}
 # ALL cases are in columns 1-27
 hc.gene  <- cluster.gene(golub.df[,1:27],s="pearson",m="average")
 ```
 
-Cut the tree (hc.gene) at a height of 0.4 (equates to pearson correlation of 0.6). This choice of cut off is user defined and should be in the range 0 < h < 2.  A low value will produce many modules (groups) with few genes in each module; a large value will produce few modules with many genes.
+Cut the tree (hc.gene) at a height of 0.4 (equates to pearson correlation of 0.6). This choice of cut off is user defined and should be in the range 0 \< h \< 2. A low value will produce many modules (groups) with few genes in each module; a large value will produce few modules with many genes.
+
 ```{r}
 g <- cutree(hc.gene, h=0.4)
 
 # make the formatting a bit nicer
-g_df <- data.frame(g) |>
+coxpress_results <- data.frame(g) |>
   rownames_to_column("gene") # these are the gene markers
-  
-g_df[order(g_df$g), ] # sorting by module number for easy viewing
+
+# rename columns 
+colnames(coxpress_results) <- c("Gene", "Cluster")
+
+head(coxpress_results)
 ```
+
 g contains the gene modules for coXpress. There seem to be modules of size 1; will want to filter these out.
 
-
 ## Investigate for modules that are similar between the two outputs (can probably be implemented in Go)
-TODO (plug into ChatGPT): First filter the two gene module dataframes (g for coXpress, and whatever the DiffCoEx gene module output is called) for modules with >=3 genes (an arbitrary cutoff; could shift it higher). Then do a pairwise comparison between modules in the two dataframes, and return a dataframe with the following columns: DiffCoEx, coXpress, GenesShared, GenesDiff, GenesCox. In this dataframe, each row is for a pair of modules that are similar ("homologous") between DiffCoEx and coXpress. The DiffCoEx and coXpress columns each contain the name of their respective homologous module, while GenesShared contains a vector of gene names that appear in both homologous modules, GenesDiff contains a vector of gene names unique to the DiffCoEx module, and GenesCox contains a vector of gene names unique to the coXpress module.
+
+TODO (plug into ChatGPT): First filter the two gene module dataframes (g for coXpress, and whatever the DiffCoEx gene module output is called) for modules with \>=3 genes (an arbitrary cutoff; could shift it higher). Then do a pairwise comparison between modules in the two dataframes, and return a dataframe with the following columns: DiffCoEx, coXpress, GenesShared, GenesDiff, GenesCox. In this dataframe, each row is for a pair of modules that are similar ("homologous") between DiffCoEx and coXpress. The DiffCoEx and coXpress columns each contain the name of their respective homologous module, while GenesShared contains a vector of gene names that appear in both homologous modules, GenesDiff contains a vector of gene names unique to the DiffCoEx module, and GenesCox contains a vector of gene names unique to the coXpress module.
 
 Or do a set difference and turn it into a percentage; could get a visualization out of that
 
+```{r}
+# check to see if genes are the same in both results 
+if (setequal(diffcoex_results$Gene, coxpress_results$Gene)) {
+  print("Both methods have the same genes.")
+} else {
+  print("The methods have different genes.")
+}
+```
+
+```{r}
+# Calculate Genes Per Cluster as a numeric vector
+genes_per_cluster_diffcoex <- as.numeric(table(diffcoex_results$Cluster))
+genes_per_cluster_coxpress <- as.numeric(table(coxpress_results$Cluster))
+
+# Compute summary statistics
+diffcoex_summary <- list(
+  Total_Genes = nrow(diffcoex_results),
+  Total_Clusters = length(unique(diffcoex_results$Cluster)),
+  Genes_Per_Cluster = summary(genes_per_cluster_diffcoex)  # Correct summary
+)
+
+coxpress_summary <- list(
+  Total_Genes = nrow(coxpress_results),
+  Total_Clusters = length(unique(coxpress_results$Cluster)),
+  Genes_Per_Cluster = summary(genes_per_cluster_coxpress)  # Correct summary
+)
+
+# Print the summaries
+cat("DiffCoEx Summary:\n")
+print(diffcoex_summary)
+cat("\nCoXpress Summary:\n")
+print(coxpress_summary)
+```
+
+```{r}
+# Check number of clusters for each method 
+num_clusters_diffcoex <- length(unique(diffcoex_results$Cluster))
+num_clusters_coxpress <- length(unique(coxpress_results$Cluster))
+num_clusters <- data.frame(Method = c("DiffCoEx", "CoXpress"),
+                           Clusters = c(num_clusters_diffcoex, num_clusters_coxpress))
+ggplot(num_clusters, aes(x = Method, y = Clusters, fill = Method)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(title = "Number of Clusters by Method", x = "Method", y = "Number of Clusters") +
+  theme_minimal() +
+  theme(text = element_text(size = 14))
+```
+
+```{r}
+# Count the number of genes in each cluster
+genes_per_cluster_diffcoex <- table(diffcoex_results$Cluster)
+
+# Convert to a data frame for ggplot
+genes_per_cluster_df_diffcoex <- as.data.frame(genes_per_cluster_diffcoex)
+colnames(genes_per_cluster_df_diffcoex) <- c("Cluster", "Gene Count")
+
+# Create the bar chart
+ggplot(genes_per_cluster_df_diffcoex, aes(x = Cluster, y = `Gene Count`)) +
+  geom_bar(stat = "identity", fill = "blue", alpha = 0.7) +
+  labs(title = "Number of Genes Per Cluster - DiffCoEx", x = "Cluster", y = "Number of Genes") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        text = element_text(size = 14))
+```
+
+```{r}
+# Count the number of genes in each cluster
+genes_per_cluster_coxpress <- table(coxpress_results$Cluster)
+
+# Convert to a data frame for ggplot
+genes_per_cluster_df_coxpress <- as.data.frame(genes_per_cluster_coxpress)
+colnames(genes_per_cluster_df_coxpress) <- c("Cluster", "Gene Count")
+
+# Create the bar chart
+ggplot(genes_per_cluster_df_coxpress, aes(x = Cluster, y = `Gene Count`)) +
+  geom_bar(stat = "identity", fill = "orange", alpha = 0.7) +
+  labs(title = "Number of Genes Per Cluster - CoXpress", x = "Cluster", y = "Number of Genes") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),    
+        axis.ticks.x = element_blank(),  
+        text = element_text(size = 14))
+```
+
+```{r}
+# heatmap to show similarity between clusters created from both methods 
+# Merge data to compare modules
+merged_data <- merge(diffcoex_results, coxpress_results, by = "Gene", suffixes = c("_DiffCoEx", "_CoXpress"))
+
+# Create a table of shared genes between modules
+shared_genes_table <- table(merged_data$Cluster_DiffCoEx, merged_data$Cluster_CoXpress)
+
+# Convert to a data frame for visualization
+shared_genes_df <- as.data.frame(as.table(shared_genes_table))
+colnames(shared_genes_df) <- c("DiffCoEx_Module", "CoXpress_Module", "Gene_Count")
+
+# Filter CoXpress modules with significant overlap (at least 5 shared genes)
+filtered_shared_genes_df <- shared_genes_df[shared_genes_df$Gene_Count >= 5, ]
+
+# Create the heatmap
+ggplot(filtered_shared_genes_df, aes(x = CoXpress_Module, y = DiffCoEx_Module, fill = Gene_Count)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue", name = "Gene Overlap") +
+  labs(title = "Gene Overlap Between DiffCoEx and CoXpress Modules",
+       x = "CoXpress Modules",
+       y = "DiffCoEx Modules") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        text = element_text(size = 12))
+```
+
+```{r}
+# write csv files for each method's results 
+coxpress_filepath <- 
+write.csv(coxpress_results, filepath1, row.names=FALSE)
+write.csv(diffcoex_results, filepath1, row.names=FALSE)
+```
+
 ## Filter the data to only include genes in the chosen module for each method (can be implemented in Go)
-We expect that the modules generated by the two methods will be different sizes, and will somewhat differ in the genes included.
-### DiffCoEx
-TODO
+
+We expect that the modules generated by the two methods will be different sizes, and will somewhat differ in the genes included. \### DiffCoEx TODO
 
 ### coXpress
+
 TODO
 
 ## Generate correlation and/or adjacency matrices (figure this out later)
+
 Four matrices should be generated. For each of the two methods, we are comparing coexpression between the ALL and AML conditions. (We expect that the module is highly coexpressed in one condition but not the other.)
 
 The difference between DiffcoEx and coXpress lies in how the modules are assigned. That is, the only difference is which module is used to subset the input data, golub.df. (e.g. for the coXpress visualizations, subset to genes in module 3 as defined by coXpress, and for DiffCoEx, subset to genes in the module homologous to module 3.) Either way, the input data is golub.df.
@@ -92,6 +262,7 @@ The difference between DiffcoEx and coXpress lies in how the modules are assigne
 The coXpress code had a very convoluted heat map visualization that involved random resampling. For our purposes, it would be better to just visualize the correlation matrices.
 
 ## DiffCoEx
+
 ```{r}
 # TODO: subset golub.df to just genes in whatever DiffCoEx module was analogous to group 3 from the coXpress analysis
 gX <- TODO
@@ -100,12 +271,12 @@ c2_d <- cor(t(gX[,28:38])) # DiffCoEx analysis, AML condition
 ```
 
 ## coXpress
+
 ```{r}
 g3 <- golub.df[g==3,] # this subsets golub.df to just genes in group 3 from the coXpress analysis
 c1 <- cor(t(g3[,1:27])) # coXpress analysis, ALL condition
 c2 <- cor(t(g3[,28:38])) # coXpress analysis, AML condition
 ```
 
-
-TODO: visualization of heat maps based on the correlation matrices c1_d, c2_d, c1, c2; label axes with gene names.  
+TODO: visualization of heat maps based on the correlation matrices c1_d, c2_d, c1, c2; label axes with gene names.\
 Separately, a delta matrix that shows the difference between conditions (e.g. ALL vs AML) in correlation between genes, for a given analysis. (Think of it as subtracting one correlation matrix from another (e.g. c1 and c2, as they're both from the coXpress analysis but one is for the ALL condition while the other is for the AML condition), and plotting that in the same way as the other heat maps were plotted.)
