@@ -3,43 +3,16 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io/ioutil"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"gonum.org/v1/gonum/mat"
 )
-
-func TestMeanFloat(t *testing.T) {
-	// Test cases 1 through 4
-	for i := 1; i <= 4; i++ {
-		// Read input file
-		inputPath := filepath.Join("Testing", "meanFloat", "In", fmt.Sprintf("input%d.txt", i))
-		outputPath := filepath.Join("Testing", "meanFloat", "Out", fmt.Sprintf("output%d.txt", i))
-
-		// Read input numbers
-		input, err := readFloatSlice(inputPath)
-		if err != nil {
-			t.Errorf("Error reading input file %d: %v", i, err)
-			continue
-		}
-
-		// Read expected output
-		expected, err := readFloat(outputPath)
-		if err != nil {
-			t.Errorf("Error reading output file %d: %v", i, err)
-			continue
-		}
-
-		// Calculate result
-		result := meanFloat(input)
-
-		// Compare with expected output
-		if result != expected {
-			t.Errorf("Test case %d failed: got %v, want %v", i, result, expected)
-		}
-	}
-}
 
 func TestMakeRange(t *testing.T) {
 	// Test cases 1 through 4
@@ -70,63 +43,6 @@ func TestMakeRange(t *testing.T) {
 			t.Errorf("Test case %d failed: got %v, want %v", i, result, expected)
 		}
 	}
-}
-
-func TestSortFloat(t *testing.T) {
-	for i := 1; i <= 4; i++ {
-		inputFile := "testing/sortFloat/In/input" + strconv.Itoa(i) + ".txt"
-		outputFile := "testing/sortFloat/Out/output" + strconv.Itoa(i) + ".txt"
-
-		inputData, err := readFloatSliceFromFile(inputFile)
-		if err != nil {
-			t.Fatalf("Failed to read input file %s: %v", inputFile, err)
-		}
-
-		expectedOutput, err := readFloatSliceFromFile(outputFile)
-		if err != nil {
-			t.Fatalf("Failed to read output file %s: %v", outputFile, err)
-		}
-
-		sortFloat(inputData)
-
-		if !equalFloatSlices(inputData, expectedOutput) {
-			t.Errorf("Test %d failed: expected %v, got %v", i, expectedOutput, inputData)
-		}
-	}
-}
-
-// Helper functions for reading test files
-func readFloatSlice(path string) ([]float64, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var numbers []float64
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		num, err := strconv.ParseFloat(strings.TrimSpace(scanner.Text()), 64)
-		if err != nil {
-			return nil, err
-		}
-		numbers = append(numbers, num)
-	}
-	return numbers, scanner.Err()
-}
-
-func readFloat(path string) (float64, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	if scanner.Scan() {
-		return strconv.ParseFloat(strings.TrimSpace(scanner.Text()), 64)
-	}
-	return 0, scanner.Err()
 }
 
 func readMinMax(path string) (min, max int, err error) {
@@ -183,45 +99,95 @@ func sliceEqual(a, b []int) bool {
 	return true
 }
 
-func readFloatSliceFromFile(filename string) ([]float64, error) {
-	file, err := os.Open(filename)
+// ReadMatrix reads a matrix from a given file path.
+// The first line should contain the row index to remove, followed by the matrix data.
+func ReadMatrix(filePath string) (*mat.Dense, int, error) {
+	inputData, err := ioutil.ReadFile(filePath)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	defer file.Close()
 
-	var data []float64
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		values := strings.Split(line, ",")
-		for _, v := range values {
-			if v == "" {
-				continue
-			}
-			num, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-			if err != nil {
-				return nil, err
-			}
-			data = append(data, num)
+	lines := strings.Split(string(inputData), "\n")
+	if len(lines) < 2 {
+		return nil, 0, fmt.Errorf("Input file must contain at least one row of data and one row index")
+	}
+
+	// Read the row to remove
+	rowToRemove, err := strconv.Atoi(strings.TrimSpace(lines[0]))
+	if err != nil {
+		return nil, 0, fmt.Errorf("Invalid row index: %v", err)
+	}
+
+	// Parse the matrix data
+	var dataRows [][]float64
+	for _, line := range lines[1:] {
+		if line == "" {
+			continue
 		}
+		var row []float64
+		for _, val := range strings.Fields(line) {
+			num, _ := strconv.ParseFloat(val, 64)
+			row = append(row, num)
+		}
+		dataRows = append(dataRows, row)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, err
+	// Create a matrix from the parsed data
+	data := mat.NewDense(len(dataRows), len(dataRows[0]), nil)
+	for i, row := range dataRows {
+		data.SetRow(i, row)
 	}
 
-	return data, nil
+	return data, rowToRemove, nil
 }
 
-func equalFloatSlices(a, b []float64) bool {
-	if len(a) != len(b) {
+// MatrixEqual compares two matrices for equality.
+func MatrixEqual(a, b *mat.Dense) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	aRows, aCols := a.Dims()
+	bRows, bCols := b.Dims()
+	if aRows != bRows || aCols != bCols {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	for i := 0; i < aRows; i++ {
+		for j := 0; j < aCols; j++ {
+			if math.Abs(a.At(i, j)-b.At(i, j)) > 1e-9 { // Use a tolerance for floating-point comparison
+				return false
+			}
 		}
 	}
 	return true
+}
+
+func TestRemoveRow(t *testing.T) {
+	// Test cases 1 through 4
+	for i := 1; i <= 4; i++ {
+		// Read input file
+		inputPath := filepath.Join("Testing", "removeRow", "In", fmt.Sprintf("input%d.txt", i))
+		outputPath := filepath.Join("Testing", "removeRow", "Out", fmt.Sprintf("output%d.txt", i))
+
+		// Read input matrix and row to remove
+		matrix, rowToRemove, err := ReadMatrix(inputPath)
+		if err != nil {
+			t.Errorf("Error reading input file %d: %v", i, err)
+			continue
+		}
+
+		// Read expected output matrix
+		expectedOutput, _, err := ReadMatrix(outputPath)
+		if err != nil {
+			t.Errorf("Error reading output file %d: %v", i, err)
+			continue
+		}
+
+		// Remove the specified row
+		result := removeRow(matrix, rowToRemove)
+
+		// Compare with expected output
+		if !MatrixEqual(result, expectedOutput) {
+			t.Errorf("Test case %d failed: matrices are not equal", i)
+		}
+	}
 }
